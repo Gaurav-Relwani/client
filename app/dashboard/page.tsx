@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useRouter } from 'next/navigation';
 import { 
-  Shield, Lock, Unlock, ChevronRight, Key, Clock, Briefcase, 
+  Shield, Lock, Unlock, ChevronRight, Briefcase, 
   FileText, Power, UploadCloud, Search, X, CheckCircle, AlertCircle, 
-  Activity, Database, LayoutGrid, Zap, FolderOpen 
+  Activity, Database, LayoutGrid, FolderOpen, Trash2, Edit3, AlertTriangle, 
+  Clock, Server
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -32,7 +33,7 @@ interface Toast {
   type: 'success' | 'error' | 'info';
 }
 
-// --- Visual Components ---
+// --- Visual Components (Restored Old Style) ---
 
 const GlassCard = ({ children, className = "", onClick, delay = 0 }: any) => (
   <motion.div 
@@ -50,13 +51,12 @@ const GlassCard = ({ children, className = "", onClick, delay = 0 }: any) => (
 );
 
 const Badge = ({ children, color }: { children: React.ReactNode, color: string }) => (
-  <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${color} backdrop-blur-md shadow-sm`}>
+  <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${color} backdrop-blur-md shadow-sm flex items-center gap-1`}>
     {children}
   </span>
 );
 
 export default function Dashboard() {
-  // --- State (Logic Preserved) ---
   const [view, setView] = useState<'hub' | 'department'>('hub');
   const [currentDept, setCurrentDept] = useState('');
   const [stats, setStats] = useState<Record<string, DeptStats>>({});
@@ -64,10 +64,14 @@ export default function Dashboard() {
   const [accessType, setAccessType] = useState('STANDARD');
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [username, setUsername] = useState('');
   
-  const [modals, setModals] = useState({ auth: false, request: false, upload: false });
+  // MODAL STATE (New Features Kept)
+  const [modals, setModals] = useState({ auth: false, request: false, upload: false, delete: false, rename: false });
+  const [targetFile, setTargetFile] = useState<{id: string|number, name: string} | null>(null);
+  const [newNameInput, setNewNameInput] = useState('');
+
   const [toasts, setToasts] = useState<Toast[]>([]);
-  
   const [deptPassword, setDeptPassword] = useState('');
   const [reqData, setReqData] = useState({ department: 'HR', duration: '30', reason: '' });
   const [uploadData, setUploadData] = useState({ filename: '', passcode: '', status: 'Locked' });
@@ -75,26 +79,20 @@ export default function Dashboard() {
   
   const router = useRouter();
 
-  // --- Filtering ---
-  const filteredDepartments = Object.keys(stats).filter(dept => 
-    dept.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredDepartments = Object.keys(stats).filter(dept => dept.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredFiles = files.filter(file => file.filename.toLowerCase().includes(searchTerm.toLowerCase()) || file.owner.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const filteredFiles = files.filter(file => 
-    file.filename.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    file.owner.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  // --- Actions ---
   const showToast = (message: string, type: Toast['type'] = 'info') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   };
 
-  const closeModal = () => {
-    setModals({ auth: false, request: false, upload: false });
-    setDeptPassword('');
+  const closeModal = () => { 
+      setModals({ auth: false, request: false, upload: false, delete: false, rename: false }); 
+      setDeptPassword(''); 
+      setTargetFile(null);
+      setNewNameInput('');
   };
 
   const fetchStats = async () => {
@@ -104,6 +102,7 @@ export default function Dashboard() {
       const res = await axios.get('http://localhost:5000/dashboard-stats', { headers: { Authorization: `Bearer ${token}` } });
       setStats(res.data.stats);
       setFullName(res.data.fullName);
+      setUsername(res.data.username);
     } catch (e: any) {
         if(e.response?.status === 503) showToast("SYSTEM LOCKDOWN ACTIVE", 'error');
         else router.push('/'); 
@@ -124,7 +123,15 @@ export default function Dashboard() {
       setSearchTerm('');
       showToast(`Welcome to ${currentDept}`, 'success');
       closeModal();
-    } catch (err) { showToast("Authentication Failed", 'error'); } 
+    } catch (err: any) { 
+        if(err.response && err.response.status === 404) {
+            showToast("ERROR: Sector Decommissioned", 'error');
+            closeModal();
+            fetchStats();
+        } else {
+            showToast("Access Denied: Invalid Credentials", 'error'); 
+        }
+    } 
     finally { setLoading(false); }
   };
 
@@ -156,10 +163,42 @@ export default function Dashboard() {
     finally { setLoading(false); }
   };
 
+  // --- CRUD HANDLERS ---
+  const triggerDelete = (id: string|number, name: string) => { setTargetFile({ id, name }); setModals(prev => ({ ...prev, delete: true })); };
+  const triggerRename = (id: string|number, name: string) => { setTargetFile({ id, name }); setNewNameInput(name); setModals(prev => ({ ...prev, rename: true })); };
+
+  const confirmDelete = async () => {
+      if(!targetFile) return;
+      setLoading(true);
+      const token = localStorage.getItem('token');
+      try {
+          await axios.post('http://localhost:5000/delete-own-file', { id: targetFile.id }, { headers: { Authorization: `Bearer ${token}` } });
+          setFiles(prev => prev.filter(f => f.id !== targetFile.id));
+          showToast("Data Incinerated", 'info');
+          fetchStats(); 
+          closeModal();
+      } catch(e) { showToast("Delete Access Denied", 'error'); }
+      finally { setLoading(false); }
+  };
+
+  const confirmRename = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if(!targetFile || !newNameInput) return;
+      setLoading(true);
+      const token = localStorage.getItem('token');
+      try {
+          await axios.post('http://localhost:5000/rename-file', { id: targetFile.id, newName: newNameInput }, { headers: { Authorization: `Bearer ${token}` } });
+          setFiles(prev => prev.map(f => f.id === targetFile.id ? { ...f, filename: newNameInput } : f));
+          showToast("Protocol Rewritten", 'success');
+          closeModal();
+      } catch(e) { showToast("Rewrite Access Denied", 'error'); }
+      finally { setLoading(false); }
+  };
+
   return (
     <div className="min-h-screen bg-[#02040a] text-slate-200 font-sans selection:bg-violet-500/30 overflow-x-hidden relative">
       
-      {/* --- FLUID BACKGROUND --- */}
+      {/* --- BACKGROUND (Original Orbs) --- */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-violet-600/20 rounded-full blur-[120px] animate-pulse"/>
         <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-600/20 rounded-full blur-[120px] animate-pulse delay-1000"/>
@@ -204,15 +243,8 @@ export default function Dashboard() {
                 />
                 {searchTerm && <button onClick={() => setSearchTerm('')} className="absolute right-4 top-1/2 -translate-y-1/2"><X size={14} className="text-slate-500 hover:text-white"/></button>}
             </div>
-            
-            {view === 'hub' && (
-                <button onClick={() => setModals({ ...modals, request: true })} className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition-all" title="Request Access">
-                    <Lock size={18}/>
-                </button>
-            )}
-            <button onClick={() => { localStorage.clear(); router.push('/'); }} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 p-3 rounded-full transition-all" title="Logout">
-                <Power size={18}/>
-            </button>
+            {view === 'hub' && <button onClick={() => setModals({ ...modals, request: true })} className="bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition-all" title="Request Access"><Lock size={18}/></button>}
+            <button onClick={() => { localStorage.clear(); router.push('/'); }} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 p-3 rounded-full transition-all" title="Logout"><Power size={18}/></button>
           </motion.div>
         </header>
 
@@ -247,12 +279,15 @@ export default function Dashboard() {
                                         <h3 className="text-2xl font-bold text-white mb-2">{dept}</h3>
                                         <div className="flex items-center justify-between text-sm text-slate-400">
                                             <span>{info.count} Encrypted Files</span>
-                                            {isUnlocked ? <Unlock size={16} className="text-emerald-400"/> : <Lock size={16} className="text-slate-600 group-hover:text-white transition-colors"/>}
+                                            {/* Security Level Indicator (The "Security Wala" Thing) */}
+                                            <span className={`text-[10px] font-bold ${info.securityLevel==='High'?'text-red-400':info.securityLevel==='Medium'?'text-amber-400':'text-blue-400'}`}>
+                                                LVL: {info.securityLevel?.toUpperCase() || 'STD'}
+                                            </span>
                                         </div>
 
                                         {isUnlocked && (
                                             <div className="mt-6 pt-4 border-t border-white/10 flex items-center gap-2 text-xs text-emerald-300 font-medium">
-                                                <Clock size={12}/> Access Expires: {new Date(info.expiresAt!).toLocaleTimeString()}
+                                                <Clock size={12}/> Expires: {new Date(info.expiresAt!).toLocaleTimeString()}
                                             </div>
                                         )}
                                     </div>
@@ -304,7 +339,16 @@ export default function Dashboard() {
                                             <div className="p-3 bg-black/20 rounded-xl text-violet-400 group-hover:scale-110 transition-transform">
                                                 <FileText size={20}/>
                                             </div>
-                                            {file.status === 'Locked' ? <Lock size={16} className="text-amber-500/70"/> : <Unlock size={16} className="text-emerald-500/70"/>}
+                                            <div className="flex gap-2">
+                                                {/* OLD STYLE BUTTONS: SUBTLE HOVER */}
+                                                {file.owner === username && (
+                                                    <>
+                                                        <button onClick={(e) => { e.stopPropagation(); triggerRename(file.id, file.filename); }} className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500 hover:text-white transition-colors"><Edit3 size={14}/></button>
+                                                        <button onClick={(e) => { e.stopPropagation(); triggerDelete(file.id, file.filename); }} className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-colors"><Trash2 size={14}/></button>
+                                                    </>
+                                                )}
+                                                {file.status === 'Locked' ? <Lock size={16} className="text-amber-500/70 mt-1"/> : <Unlock size={16} className="text-emerald-500/70 mt-1"/>}
+                                            </div>
                                         </div>
                                         <h4 className="text-white font-medium truncate mb-1">{file.filename}</h4>
                                         <p className="text-xs text-slate-500">By {file.owner}</p>
@@ -315,78 +359,67 @@ export default function Dashboard() {
                     </div>
                 </motion.div>
             )}
-
         </AnimatePresence>
 
-        {/* --- MODALS (Glass Theme) --- */}
+        {/* --- MODALS (Enhanced but Classic Style) --- */}
         <AnimatePresence>
-            {(modals.auth || modals.request || modals.upload) && (
+            {(modals.auth || modals.request || modals.upload || modals.delete || modals.rename) && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={closeModal}>
                     <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} onClick={e => e.stopPropagation()} className="w-full max-w-md bg-[#0F1218] border border-white/10 shadow-2xl rounded-3xl overflow-hidden relative">
                         <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none"/>
                         
                         <div className="p-8 relative z-10">
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-xl font-bold text-white">
-                                    {modals.auth ? 'Security Check' : modals.request ? 'Access Request' : 'Upload File'}
-                                </h3>
-                                <button onClick={closeModal} className="p-2 hover:bg-white/10 rounded-full transition"><X size={20} className="text-slate-400"/></button>
-                            </div>
-
-                            {modals.auth && (
-                                <form onSubmit={enterDepartment} className="space-y-6">
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Password</label>
-                                        <input autoFocus type="password" value={deptPassword} onChange={e=>setDeptPassword(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-xl p-4 text-white focus:border-violet-500 outline-none transition-all" placeholder="Enter credentials..."/>
+                            
+                            {/* --- DELETE MODAL --- */}
+                            {modals.delete && (
+                                <div className="text-center space-y-4">
+                                    <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-2 animate-pulse border border-red-500/30">
+                                        <AlertTriangle size={32} className="text-red-500"/>
                                     </div>
-                                    <button disabled={loading} className="w-full bg-violet-600 hover:bg-violet-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-violet-500/20 transition-all flex justify-center items-center gap-2">
-                                        {loading ? <Activity className="animate-spin"/> : <>Unlock <ChevronRight size={18}/></>}
+                                    <h3 className="text-2xl font-bold text-white tracking-tight">Incinerate Data?</h3>
+                                    <p className="text-slate-400 text-sm">
+                                        You are about to permanently purge <span className="text-white font-mono bg-white/10 px-1 rounded">{targetFile?.name}</span>. This is irreversible.
+                                    </p>
+                                    <div className="grid grid-cols-2 gap-3 pt-2">
+                                        <button onClick={closeModal} className="py-3 rounded-xl border border-white/10 text-white hover:bg-white/5 font-medium transition-all">Abort</button>
+                                        <button onClick={confirmDelete} disabled={loading} className="py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold shadow-lg shadow-red-900/30 flex items-center justify-center gap-2 transition-all">
+                                            {loading ? <Activity className="animate-spin" size={18}/> : <><Trash2 size={18}/> INCINERATE</>}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* --- RENAME MODAL --- */}
+                            {modals.rename && (
+                                <form onSubmit={confirmRename} className="space-y-4">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <h3 className="text-xl font-bold text-white flex items-center gap-2"><Edit3 size={20} className="text-blue-400"/> Rewrite Protocol</h3>
+                                        <button type="button" onClick={closeModal}><X size={20} className="text-slate-400 hover:text-white"/></button>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Current Filename</label>
+                                        <div className="text-sm text-white font-mono mb-4 border-b border-white/10 pb-2">{targetFile?.name}</div>
+                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">New Designation</label>
+                                        <input autoFocus type="text" value={newNameInput} onChange={e=>setNewNameInput(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white focus:border-blue-500 outline-none transition-all font-mono"/>
+                                    </div>
+                                    <button disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 transition-all mt-4">
+                                        {loading ? <Activity className="animate-spin" size={18}/> : "EXECUTE REWRITE"}
                                     </button>
                                 </form>
                             )}
 
-                            {modals.request && (
-                                <form onSubmit={sendRequest} className="space-y-4">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">Department</label>
-                                            <select className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white outline-none" onChange={e=>setReqData({...reqData, department: e.target.value})}>{Object.keys(stats).map(d=><option key={d} value={d}>{d}</option>)}</select>
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">Duration</label>
-                                            <select className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white outline-none" onChange={e=>setReqData({...reqData, duration: e.target.value})}><option value="15">15 Min</option><option value="30">30 Min</option><option value="60">1 Hour</option></select>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">Reason</label>
-                                        <textarea rows={3} placeholder="Why do you need access?" className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white outline-none resize-none" onChange={e=>setReqData({...reqData, reason: e.target.value})}/>
-                                    </div>
-                                    <button disabled={loading} className="w-full bg-amber-500 hover:bg-amber-400 text-black font-bold py-3 rounded-xl transition-all">
-                                        {loading ? 'Sending...' : 'Send Request'}
-                                    </button>
-                                </form>
-                            )}
-
-                            {modals.upload && (
-                                <form onSubmit={handleUpload} className="space-y-4">
-                                    <input type="text" placeholder="Filename" className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white outline-none focus:border-violet-500" onChange={e=>setUploadData({...uploadData, filename: e.target.value})}/>
-                                    <input type="password" placeholder="Verify Password" className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white outline-none focus:border-violet-500" onChange={e=>setUploadData({...uploadData, passcode: e.target.value})}/>
-                                    <div className="flex gap-3">
-                                        <button type="button" onClick={()=>setUploadData({...uploadData, status:'Locked'})} className={`flex-1 p-3 rounded-xl border text-sm font-bold transition-all ${uploadData.status==='Locked'?'bg-amber-500/20 border-amber-500 text-amber-400':'border-white/10 text-slate-500'}`}>Private</button>
-                                        <button type="button" onClick={()=>setUploadData({...uploadData, status:'Unlocked'})} className={`flex-1 p-3 rounded-xl border text-sm font-bold transition-all ${uploadData.status==='Unlocked'?'bg-emerald-500/20 border-emerald-500 text-emerald-400':'border-white/10 text-slate-500'}`}>Public</button>
-                                    </div>
-                                    <button disabled={loading} className="w-full bg-white hover:bg-slate-200 text-black font-bold py-3 rounded-xl transition-all">
-                                        {loading ? 'Uploading...' : 'Upload File'}
-                                    </button>
-                                </form>
-                            )}
+                            {/* --- CLASSIC MODALS --- */}
+                            {modals.auth && <form onSubmit={enterDepartment} className="space-y-6"><div className="flex justify-between mb-4"><h3 className="text-xl font-bold text-white">Security Check</h3><button onClick={closeModal}><X size={20} className="text-slate-400"/></button></div><div><label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Password</label><input autoFocus type="password" value={deptPassword} onChange={e=>setDeptPassword(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-xl p-4 text-white focus:border-violet-500 outline-none transition-all" placeholder="Enter credentials..."/></div><button disabled={loading} className="w-full bg-violet-600 hover:bg-violet-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-violet-500/20 transition-all flex justify-center items-center gap-2">{loading ? <Activity className="animate-spin"/> : <>Unlock <ChevronRight size={18}/></>}</button></form>}
+                            
+                            {modals.request && <form onSubmit={sendRequest} className="space-y-4"><div className="flex justify-between mb-2"><h3 className="text-xl font-bold text-white">Access Request</h3><button type="button" onClick={closeModal}><X size={20} className="text-slate-400"/></button></div><div className="grid grid-cols-2 gap-4"><div><label className="text-xs font-bold text-slate-400 uppercase mb-2 block">Department</label><select className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white outline-none" onChange={e=>setReqData({...reqData, department: e.target.value})}>{Object.keys(stats).map(d=><option key={d} value={d}>{d}</option>)}</select></div><div><label className="text-xs font-bold text-slate-400 uppercase mb-2 block">Duration</label><select className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white outline-none" onChange={e=>setReqData({...reqData, duration: e.target.value})}><option value="15">15 Min</option><option value="30">30 Min</option><option value="60">1 Hour</option></select></div></div><div><label className="text-xs font-bold text-slate-400 uppercase mb-2 block">Reason</label><textarea rows={3} placeholder="Why do you need access?" className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white outline-none resize-none" onChange={e=>setReqData({...reqData, reason: e.target.value})}/></div><button disabled={loading} className="w-full bg-amber-500 hover:bg-amber-400 text-black font-bold py-3 rounded-xl transition-all">{loading ? 'Sending...' : 'Send Request'}</button></form>}
+                            
+                            {modals.upload && <form onSubmit={handleUpload} className="space-y-4"><div className="flex justify-between mb-2"><h3 className="text-xl font-bold text-white">Upload File</h3><button type="button" onClick={closeModal}><X size={20} className="text-slate-400"/></button></div><input type="text" placeholder="Filename" className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white outline-none focus:border-violet-500" onChange={e=>setUploadData({...uploadData, filename: e.target.value})}/><input type="password" placeholder="Verify Password" className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white outline-none focus:border-violet-500" onChange={e=>setUploadData({...uploadData, passcode: e.target.value})}/><div className="flex gap-3"><button type="button" onClick={()=>setUploadData({...uploadData, status:'Locked'})} className={`flex-1 p-3 rounded-xl border text-sm font-bold transition-all ${uploadData.status==='Locked'?'bg-amber-500/20 border-amber-500 text-amber-400':'border-white/10 text-slate-500'}`}>Private</button><button type="button" onClick={()=>setUploadData({...uploadData, status:'Unlocked'})} className={`flex-1 p-3 rounded-xl border text-sm font-bold transition-all ${uploadData.status==='Unlocked'?'bg-emerald-500/20 border-emerald-500 text-emerald-400':'border-white/10 text-slate-500'}`}>Public</button></div><button disabled={loading} className="w-full bg-white hover:bg-slate-200 text-black font-bold py-3 rounded-xl transition-all">{loading ? 'Uploading...' : 'Upload File'}</button></form>}
                         </div>
                     </motion.div>
                 </motion.div>
             )}
         </AnimatePresence>
-
       </div>
     </div>
   );
-} 
+}
