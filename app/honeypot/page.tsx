@@ -1,3 +1,4 @@
+
 "use client";
 import { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
@@ -13,7 +14,10 @@ export default function TrapPage() {
   const [logs, setLogs] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Fake "Forensic" Logs
+  // ENV LINK
+  const API_URL = process.env.NEXT_PUBLIC_API_URL;
+  const IP_API_URL = process.env.NEXT_PUBLIC_IP_API;
+
   const forensicData = [
     "INITIATING COUNTER-MEASURES...",
     "BYPASSING PROXY CHAIN...",
@@ -29,7 +33,7 @@ export default function TrapPage() {
     const springTrap = async () => {
       try {
         // 1. SILENT TRACE (During Bait Phase)
-        const res = await axios.get('https://ipapi.co/json/');
+        const res = await axios.get(IP_API_URL || 'https://ipapi.co/json/');
         const { ip, city, region, country_name, org, latitude, longitude } = res.data;
         
         setHackerInfo({ 
@@ -41,7 +45,7 @@ export default function TrapPage() {
         });
 
         // 2. TRIGGER BACKEND ALARM
-        await axios.post('http://localhost:5000/trap-trigger', { 
+        await axios.post(`${API_URL}/trap-trigger`, { 
            ip: ip, userAgent: navigator.userAgent 
         });
 

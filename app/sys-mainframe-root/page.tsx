@@ -14,21 +14,19 @@ export default function AdminConsole() {
   });
   const [editSettings, setEditSettings] = useState({ allowedDomain: '', idPattern: '' });
   
-  // NEW STATE FOR SECTOR CREATION
   const [newSectorName, setNewSectorName] = useState('');
   const [newSectorLevel, setNewSectorLevel] = useState('Medium');
-  
-  // MODAL STATE FOR DELETE CONFIRMATION
   const [sectorToDelete, setSectorToDelete] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
   const fetchData = async () => {
     const token = localStorage.getItem('token');
     if (!token) return router.push('/');
     try {
-        const res = await axios.get('http://localhost:5000/admin/data', { headers: { Authorization: `Bearer ${token}` } });
+        const res = await axios.get(`${API_URL}/admin/data`, { headers: { Authorization: `Bearer ${token}` } });
         setData(res.data);
         if (loading) {
             setEditSettings({ 
@@ -46,7 +44,7 @@ export default function AdminConsole() {
         const token = localStorage.getItem('token');
         if (!token) return;
         try {
-            const res = await axios.get('http://localhost:5000/admin/data', { headers: { Authorization: `Bearer ${token}` } });
+            const res = await axios.get(`${API_URL}/admin/data`, { headers: { Authorization: `Bearer ${token}` } });
             setData((prev: any) => ({
                 ...prev,
                 files: res.data.files,
@@ -62,14 +60,14 @@ export default function AdminConsole() {
   const saveFirewallRules = async () => {
       const token = localStorage.getItem('token');
       const newSettings = { ...editSettings, lockdown: data.settings.lockdown };
-      await axios.post('http://localhost:5000/admin/settings', newSettings, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(`${API_URL}/admin/settings`, newSettings, { headers: { Authorization: `Bearer ${token}` } });
       alert("FIREWALL RULES UPDATED");
       fetchData();
   };
 
   const toggleLockdown = async () => {
       const token = localStorage.getItem('token');
-      await axios.post('http://localhost:5000/admin/lockdown', { enabled: !data.settings.lockdown }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(`${API_URL}/admin/lockdown`, { enabled: !data.settings.lockdown }, { headers: { Authorization: `Bearer ${token}` } });
       setData((prev: any) => ({ ...prev, settings: { ...prev.settings, lockdown: !prev.settings.lockdown } }));
   };
 
@@ -79,7 +77,7 @@ export default function AdminConsole() {
           ...prev,
           requests: prev.requests.map((r:any) => r.id === requestId ? {...r, status: action === 'Approve' ? 'Approved' : 'Denied'} : r)
       }));
-      await axios.post('http://localhost:5000/admin/approve-request', { requestId, action }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(`${API_URL}/admin/approve-request`, { requestId, action }, { headers: { Authorization: `Bearer ${token}` } });
       fetchData();
   };
 
@@ -87,35 +85,27 @@ export default function AdminConsole() {
       if(!confirm("PERMANENTLY DELETE FILE?")) return;
       const token = localStorage.getItem('token');
       setData((prev: any) => ({ ...prev, files: prev.files.filter((f:any) => f.id !== id) }));
-      await axios.post('http://localhost:5000/admin/delete-file', { id }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(`${API_URL}/admin/delete-file`, { id }, { headers: { Authorization: `Bearer ${token}` } });
   };
 
   const addSector = async () => {
       if(!newSectorName) return;
       const token = localStorage.getItem('token');
-      
       const newSectorObj = { name: newSectorName, level: newSectorLevel };
       const updatedSectors = [...(data.settings.sectors || []), newSectorObj];
       setData((prev: any) => ({ ...prev, settings: { ...prev.settings, sectors: updatedSectors }}));
-      
       setNewSectorName('');
-      await axios.post('http://localhost:5000/admin/add-sector', newSectorObj, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(`${API_URL}/admin/add-sector`, newSectorObj, { headers: { Authorization: `Bearer ${token}` } });
       fetchData();
   };
 
-  // REPLACED CONFIRM WITH MODAL TRIGGER
-  const initiateDeleteSector = (name: string) => {
-      setSectorToDelete(name);
-  };
-
+  const initiateDeleteSector = (name: string) => { setSectorToDelete(name); };
   const confirmDeleteSector = async () => {
       if(!sectorToDelete) return;
       const token = localStorage.getItem('token');
-      
       const updatedSectors = data.settings.sectors.filter((s: any) => (typeof s === 'string' ? s : s.name) !== sectorToDelete);
       setData((prev: any) => ({ ...prev, settings: { ...prev.settings, sectors: updatedSectors }}));
-      
-      await axios.post('http://localhost:5000/admin/delete-sector', { name: sectorToDelete }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(`${API_URL}/admin/delete-sector`, { name: sectorToDelete }, { headers: { Authorization: `Bearer ${token}` } });
       setSectorToDelete(null);
       fetchData();
   };
@@ -123,7 +113,6 @@ export default function AdminConsole() {
   if (loading) return <div className="bg-black h-screen text-green-500 font-mono flex items-center justify-center">INITIALIZING ROOT...</div>;
 
   const isLockdown = data.settings.lockdown;
-  // Theme logic for Admin Console (Green = Normal, Red = Lockdown)
   const theme = isLockdown ? 'text-red-500 border-red-500 selection:bg-red-900' : 'text-green-500 border-green-500 selection:bg-green-900';
   const inputTheme = isLockdown ? 'bg-red-900/10 border-red-500 text-red-500 placeholder-red-800' : 'bg-green-900/10 border-green-500 text-green-500 placeholder-green-800';
   const btnHover = isLockdown ? 'hover:bg-red-500 hover:text-black' : 'hover:bg-green-500 hover:text-black';
@@ -133,7 +122,7 @@ export default function AdminConsole() {
       <header className={`flex flex-col md:flex-row justify-between items-center mb-8 border-b pb-6 gap-4 ${theme}`}>
         <div className="flex items-center gap-4 w-full md:w-auto">
              <div className={`p-3 border ${theme}`}><ShieldAlert size={32} className={isLockdown ? 'animate-pulse' : ''}/></div>
-             <div><h1 className="text-2xl md:text-3xl font-bold tracking-widest uppercase">SYS_ROOT</h1><p className="text-xs opacity-70">{isLockdown ? '⚠ CRITICAL: SYSTEM LOCKDOWN ACTIVE' : 'STATUS: NORMAL OPERATIONS'}</p></div>
+             <div><h1 className="text-2xl md:text-3xl font-bold tracking-widest uppercase">ADMIN</h1><p className="text-xs opacity-70">{isLockdown ? '⚠ CRITICAL: SYSTEM LOCKDOWN ACTIVE' : 'STATUS: NORMAL OPERATIONS'}</p></div>
         </div>
         <div className="flex gap-4 w-full md:w-auto">
             <button onClick={toggleLockdown} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 border font-bold transition-colors ${btnHover} ${isLockdown ? 'bg-red-900/20 animate-pulse' : ''}`}><Siren size={20}/> {isLockdown ? 'LIFT LOCKDOWN' : 'INITIATE LOCKDOWN'}</button>
@@ -159,16 +148,16 @@ export default function AdminConsole() {
                       <div className="flex gap-2">
                           <input type="text" placeholder="NAME..." value={newSectorName} onChange={e => setNewSectorName(e.target.value)} className={`flex-1 p-2 border bg-black outline-none font-mono text-sm ${inputTheme}`}/>
                           
-                          {/* FIXED DROPDOWN STYLE */}
+                          {/* THEMED DROPDOWN (Corrected) */}
                           <select 
                             value={newSectorLevel} 
                             onChange={e => setNewSectorLevel(e.target.value)} 
-                            className={`w-28 p-2 border outline-none font-mono text-xs ${inputTheme} bg-black appearance-none cursor-pointer`}
+                            className={`w-28 p-2 border outline-none font-mono text-xs ${inputTheme} text-current appearance-none cursor-pointer`}
                           >
-                              <option value="Low" className="bg-black text-white">LOW</option>
-                              <option value="Medium" className="bg-black text-white">MED</option>
-                              <option value="High" className="bg-black text-white">HIGH</option>
-                              <option value="Critical" className="bg-black text-white">CRIT</option>
+                              <option value="Low" className="bg-black">LOW</option>
+                              <option value="Medium" className="bg-black">MED</option>
+                              <option value="High" className="bg-black">HIGH</option>
+                              <option value="Critical" className="bg-black">CRIT</option>
                           </select>
                           
                           <button onClick={addSector} className={`px-3 border font-bold ${theme} ${btnHover}`}><Plus size={16}/></button>
@@ -179,11 +168,7 @@ export default function AdminConsole() {
                               const level = typeof sector === 'string' ? 'STD' : sector.level;
                               return (
                                   <div key={name} className={`flex justify-between items-center p-2 border ${theme} bg-transparent hover:bg-white/5 transition-colors`}>
-                                      <div>
-                                          <span className="text-sm font-bold block uppercase">{name}</span>
-                                          <span className="text-[10px] opacity-60 flex items-center gap-1"><Lock size={8}/> LEVEL: {level}</span>
-                                      </div>
-                                      {/* Trigger Modal Instead of Alert */}
+                                      <div><span className="text-sm font-bold block uppercase">{name}</span><span className="text-[10px] opacity-60 flex items-center gap-1"><Lock size={8}/> LEVEL: {level}</span></div>
                                       <button onClick={() => initiateDeleteSector(name)} className={`p-1 ${theme} hover:text-white hover:bg-red-600 transition-colors border border-transparent hover:border-red-600`}><Trash2 size={14}/></button>
                                   </div>
                               )
@@ -238,20 +223,15 @@ export default function AdminConsole() {
               </div>
           </div>
 
-          {/* --- ADMIN MODAL FOR SECTOR DELETION --- */}
           <AnimatePresence>
             {sectorToDelete && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <motion.div initial={{ scale: 0.9, y: 10 }} animate={{ scale: 1, y: 0 }} className={`w-full max-w-md bg-black border-2 ${theme} shadow-[0_0_50px_rgba(0,0,0,0.8)] p-6 relative`}>
                         <div className="text-center space-y-6">
-                            <div className={`w-16 h-16 mx-auto border-2 rounded-full flex items-center justify-center ${isLockdown ? 'border-red-500 bg-red-900/20' : 'border-green-500 bg-green-900/20'}`}>
-                                <AlertTriangle size={32} className={isLockdown ? 'text-red-500' : 'text-green-500'}/>
-                            </div>
+                            <div className={`w-16 h-16 mx-auto border-2 rounded-full flex items-center justify-center ${isLockdown ? 'border-red-500 bg-red-900/20' : 'border-green-500 bg-green-900/20'}`}><AlertTriangle size={32} className={isLockdown ? 'text-red-500' : 'text-green-500'}/></div>
                             <div>
                                 <h3 className={`text-xl font-bold uppercase tracking-widest mb-2 ${isLockdown ? 'text-red-500' : 'text-green-500'}`}>Purge Sector?</h3>
-                                <p className="text-white font-mono text-xs opacity-80 leading-relaxed">
-                                    WARNING: Deleting sector <span className="font-bold border-b border-white/50">{sectorToDelete}</span> will result in immediate data loss for all associated files. This action overrides all security protocols.
-                                </p>
+                                <p className="text-white font-mono text-xs opacity-80 leading-relaxed">WARNING: Deleting sector <span className="font-bold border-b border-white/50">{sectorToDelete}</span> will result in immediate data loss. This action overrides all security protocols.</p>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <button onClick={() => setSectorToDelete(null)} className={`py-3 border font-bold hover:bg-white/10 transition-colors uppercase text-xs ${theme}`}>Cancel</button>
@@ -262,7 +242,6 @@ export default function AdminConsole() {
                 </motion.div>
             )}
           </AnimatePresence>
-
       </div>
     </div>
   );
