@@ -2,27 +2,25 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, ArrowRight, Loader2, Lock, User, BadgeCheck, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
+import { ShieldCheck, ArrowRight, Loader2, Lock, User, BadgeCheck, AlertCircle, CheckCircle, RefreshCw, Mail } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Home() {
   const [isRegister, setIsRegister] = useState(false);
-  const [formData, setFormData] = useState({ fullName: '', username: '', password: '' });
+  // NEW: Added email to formData
+  const [formData, setFormData] = useState({ fullName: '', email: '', username: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [rules, setRules] = useState({ idPattern: '', allowedDomain: '' });
   
-  // MIGRATION STATE
   const [migrationMode, setMigrationMode] = useState(false);
   const [newId, setNewId] = useState('');
   
-  // UI FEEDBACK (Toasts)
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const router = useRouter();
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-  // FETCH RULES ON LOAD
   useEffect(() => {
     if(API_URL) {
         axios.get(`${API_URL}/public-settings`)
@@ -40,10 +38,15 @@ export default function Home() {
 
     if (!API_URL) { setError("Config Missing (.env)"); setLoading(false); return; }
 
-    // 1. CLIENT VALIDATION
+    // CLIENT VALIDATION
     if (isRegister) {
         if (!isValidPassword(formData.password)) {
             setError("Password too weak (Min 8 chars, 1 Num, 1 Special)");
+            setLoading(false); return;
+        }
+        // NEW: STRICT DOMAIN CHECK
+        if (rules.allowedDomain && !formData.email.endsWith(rules.allowedDomain)) {
+            setError(`Security Policy: Email must end with ${rules.allowedDomain}`);
             setLoading(false); return;
         }
         if (rules.idPattern && !new RegExp(rules.idPattern).test(formData.username)) {
@@ -59,9 +62,8 @@ export default function Home() {
       if (!isRegister) {
         localStorage.setItem('token', res.data.token);
         
-        // --- FIX 2: REDIRECT TRAPPED GHOSTS TO HONEYPOT ---
         if (res.data.role === 'trapped_ghost') {
-            router.push('/honeypot'); // <--- THE TRAP
+            router.push('/honeypot'); 
         } 
         else if (res.data.role === 'admin') {
             router.push('/sys-mainframe-root'); 
@@ -75,9 +77,8 @@ export default function Home() {
         setIsRegister(false);
       }
     } catch (err: any) {
-      // 2. SERVER VALIDATION
       if (err.response?.status === 409 && err.response?.data?.message === "MIGRATION_REQUIRED") {
-          setMigrationMode(true); // Open Migration Modal
+          setMigrationMode(true); 
       } else {
           setError(err.response?.data?.message || "Connection Failed");
       }
@@ -106,12 +107,10 @@ export default function Home() {
     <div className="min-h-screen w-full flex items-center justify-center bg-[#05070a] relative overflow-hidden font-sans">
       <div className="absolute top-1/4 -left-20 w-[500px] h-[500px] bg-emerald-900/20 rounded-full blur-[120px] pointer-events-none"></div>
       
-      {/* --- FIX 1: LINK POINTING TO CORRECT PAGE --- */}
       <a href="/honeypot" className="opacity-0 absolute bottom-0 left-0 text-[1px] pointer-events-auto cursor-default" tabIndex={-1}>
         Debug: Administrator System Recovery Console
       </a>
 
-      {/* TOAST SYSTEM */}
       <AnimatePresence>
           {error && <motion.div initial={{y:-50, opacity:0}} animate={{y:0, opacity:1}} exit={{opacity:0}} className="fixed top-5 bg-red-500/20 border border-red-500 text-red-200 px-6 py-3 rounded-xl backdrop-blur-md flex items-center gap-2 shadow-lg z-50"><AlertCircle size={18}/> {error}</motion.div>}
           {success && <motion.div initial={{y:-50, opacity:0}} animate={{y:0, opacity:1}} exit={{opacity:0}} className="fixed top-5 bg-emerald-500/20 border border-emerald-500 text-emerald-200 px-6 py-3 rounded-xl backdrop-blur-md flex items-center gap-2 shadow-lg z-50"><CheckCircle size={18}/> {success}</motion.div>}
@@ -128,11 +127,22 @@ export default function Home() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {isRegister && (
-               <div className="relative group"><BadgeCheck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} /><input type="text" required placeholder="Full Legal Name" className="w-full bg-slate-900/50 border border-slate-700 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-emerald-500 transition-all" onChange={(e) => setFormData({...formData, fullName: e.target.value})} /></div>
+               <>
+                 <div className="relative group">
+                    <BadgeCheck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                    <input type="text" required placeholder="Full Legal Name" className="w-full bg-slate-900/50 border border-slate-700 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-emerald-500 transition-all" onChange={(e) => setFormData({...formData, fullName: e.target.value})} />
+                 </div>
+                 {/* NEW: Official Email Field */}
+                 <div className="relative group">
+                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                    <input type="email" required placeholder={`Official Email (${rules.allowedDomain || '@domain.com'})`} className="w-full bg-slate-900/50 border border-slate-700 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-emerald-500 transition-all" onChange={(e) => setFormData({...formData, email: e.target.value})} />
+                 </div>
+               </>
             )}
+            
             <div className="relative group">
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                <input type="text" required placeholder={isRegister && rules.idPattern ? `Format: ${rules.idPattern}` : "Corporate ID"} className="w-full bg-slate-900/50 border border-slate-700 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-emerald-500 transition-all" onChange={(e) => setFormData({...formData, username: e.target.value})} />
+                <input type="text" required placeholder={isRegister && rules.idPattern ? `ID Format: ${rules.idPattern}` : "Corporate ID"} className="w-full bg-slate-900/50 border border-slate-700 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-emerald-500 transition-all" onChange={(e) => setFormData({...formData, username: e.target.value})} />
             </div>
             
             <div className="relative group">
